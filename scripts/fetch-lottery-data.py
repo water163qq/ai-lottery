@@ -23,6 +23,7 @@ import urllib.request
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 
 SSQ_API = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice"
+SSQ_HISTORY = "https://datachart.500.com/ssq/history/newinc/history.php"
 DLT_HISTORY = "https://datachart.500.com/dlt/history/newinc/history.php"
 NEWS_LIST = "https://www.zhcw.com/xinwen/"
 
@@ -52,7 +53,13 @@ def fmt_date(text):
     return (text or "").split("(")[0].strip()
 
 
-def fetch_ssq():
+def normalize_ssq_issue(issue):
+    """500.com uses 5-digit issues (26128); the official API uses 7 (2026128)."""
+    issue = str(issue).strip()
+    return "20" + issue if len(issue) == 5 else issue
+
+
+def fetch_ssq_official():
     query = f"?name=ssq&issueCount={DRAW_LIMIT}&pageNo=1&pageSize={DRAW_LIMIT}"
     payload = json.loads(http_get(SSQ_API + query, referer="https://www.cwl.gov.cn/"))
     rows = payload.get("result") or []
@@ -86,52 +93,109 @@ def fetch_ssq():
     return draws, info
 
 
-def fetch_dlt():
-    text = http_get(f"{DLT_HISTORY}?limit={DRAW_LIMIT}", referer="https://datachart.500.com/")
+def parse_500_rows(text, front_class, back_class, front_count):
     text = text.replace("\r", "").replace("\n", "")
     draws = []
-    info = None
     for row in re.split(r"<tr", text):
-        if 'class="cfont2"' not in row:
+        if f'class="{front_class}"' not in row:
             continue
-        issue = re.search(r'<td class="t_tr1">(\d{5})</td>', row)
-        front = re.findall(r'class="cfont2">(\d{2})</td>', row)
-        back = re.findall(r'class="cfont4">(\d{2})</td>', row)
-        date = re.findall(r'(\d{4}-\d{2}-\d{2})</td>', row)
-        if not issue or len(front) < 5 or len(back) < 2:
+        issue = re.search(r"<td[^>]*>(\d{5})</td>", row)
+        front = re.findall(rf'class="{front_class}">(\d{{2}})</td>', row)
+        back = re.findall(rf'class="{back_class}">(\d{{2}})</td>', row)
+        date = re.findall(r"(\d{4}-\d{2}-\d{2})</td>", row)
+        if not issue or len(front) < front_count or len(back) < 1:
+            continue
+        back_valid = [x for x in back if x != "&nbsp;"][:2]
+        if front_count == 6:
+            back_valid = back_valid[:1]
+        if len(back_valid) < 1:
             continue
         draws.append({
             "issue": issue.group(1),
             "date": date[-1] if date else "",
             "areas": {
-                "front": sorted(int(x) for x in front[:5]),
-                "back": sorted(int(x) for x in back[:2]),
+                "front": sorted(int(x) for x in front[:front_count]),
+                "back": sorted(int(x) for x in back_valid),
             },
         })
     draws.sort(key=lambda d: d["issue"], reverse=True)
+    return draws
 
-    if draws:
-        first_row = None
-        for row in re.split(r"<tr", text):
-            if 'class="cfont2"' in row and re.search(r'<td class="t_tr1">(\d{5})</td>', row):
-                first_row = row
-                break
-        if first_row:
-            first_row = re.sub(r"<!--.*?-->", "", first_row, flags=re.S)
-            cells = [html.unescape(re.sub(r"<[^>]+>", "", c)).strip()
-                     for c in re.findall(r"<td[^>]*>(.*?)</td>", first_row)]
-            cells = [c for c in cells if c != ""]
-            # issue, 5 front, 2 back, sales, 1st count, 1st prize, 2nd count, 2nd prize, pool, date
-            if len(cells) >= 14:
-                info = {
-                    "issue": cells[0],
-                    "date": draws[0]["date"],
-                    "sales": cells[8],
-                    "firstCount": cells[9],
-                    "firstPrize": cells[10],
-                    "pool": cells[13],
-                    "content": "",
-                }
+
+def fetch_ssq_500():
+    text = http_get(f"{SSQ_HISTORY}?limit={DRAW_LIMIT}", referer="https://datachart.500.com/")
+    parsed = parse_500_rows(text, "t_cfont2", "t_cfont4", 6)
+    draws = [{
+        "issue": normalize_ssq_issue(d["issue"]),
+        "date": d["date"],
+        "areas": {"red": d["areas"]["front"], "blue": d["areas"]["back"]},
+    } for d in parsed]
+
+    info = None
+    flat = text.replace("\r", "").replace("\n", "")
+    for row in re.split(r"<tr", flat):
+        if 'class="t_cfont2"' not in row:
+            continue
+        row = re.sub(r"<!--.*?-->", "", row, flags=re.S)
+        cells = [html.unescape(re.sub(r"<[^>]+>", "", c)).replace("\xa0", "").strip()
+                 for c in re.findall(r"<td[^>]*>(.*?)</td>", row)]
+        if len(cells) >= 16:
+            info = {
+                "issue": cells[0],
+                "date": draws[0]["date"] if draws else "",
+                "sales": cells[14],
+                "firstCount": cells[10],
+                "firstPrize": cells[11],
+                "pool": cells[9],
+                "content": "",
+            }
+            break
+    return draws, info
+
+
+def fetch_ssq():
+    errors = []
+    try:
+        draws, info = fetch_ssq_official()
+        if len(draws) >= 20:
+            return draws, info
+        errors.append(f"official returned {len(draws)} draws")
+    except Exception as exc:
+        errors.append(f"official: {exc}")
+    print("ssq: falling back to 500.com", file=sys.stderr)
+    draws, info = fetch_ssq_500()
+    if len(draws) < 20:
+        raise RuntimeError("500.com fallback failed: " + "; ".join(errors))
+    return draws, info
+
+
+def fetch_dlt():
+    text = http_get(f"{DLT_HISTORY}?limit={DRAW_LIMIT}", referer="https://datachart.500.com/")
+    draws = parse_500_rows(text, "cfont2", "cfont4", 5)
+    if len(draws) < 20:
+        raise RuntimeError(f"500.com returned only {len(draws)} draws")
+
+    info = None
+    flat = text.replace("\r", "").replace("\n", "")
+    for row in re.split(r"<tr", flat):
+        if 'class="cfont2"' not in row:
+            continue
+        row = re.sub(r"<!--.*?-->", "", row, flags=re.S)
+        cells = [html.unescape(re.sub(r"<[^>]+>", "", c)).strip()
+                 for c in re.findall(r"<td[^>]*>(.*?)</td>", row)]
+        cells = [c for c in cells if c != ""]
+        # issue, 5 front, 2 back, sales, 1st count, 1st prize, 2nd count, 2nd prize, pool, date
+        if len(cells) >= 14:
+            info = {
+                "issue": cells[0],
+                "date": draws[0]["date"],
+                "sales": cells[8],
+                "firstCount": cells[9],
+                "firstPrize": cells[10],
+                "pool": cells[13],
+                "content": "",
+            }
+            break
     return draws, info
 
 
