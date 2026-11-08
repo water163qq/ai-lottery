@@ -180,3 +180,8 @@ lottery-ai/downloads/*.apk
 lottery-ai/downloads/*.zip
 android/local.properties
 android/app/keystore.jks
+
+# Gradle wrapper must be version controlled for reproducible CI builds
+!android/gradle/wrapper/gradle-wrapper.jar
+!android/gradlew
+!android/gradlew.bat
