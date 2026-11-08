@@ -1,0 +1,55 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.monkeycode.ailottery'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.monkeycode.ailottery"
+        minSdk 21
+        targetSdk 33
+        versionCode 10000
+        versionName "1.0.0"
+        buildConfigField "String", "BUILD_DATE", "\"2026-11-08\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        release {
+            def ksFile = file("keystore.jks")
+            if (ksFile.exists()) {
+                storeFile ksFile
+                storePassword System.getenv("KEYSTORE_PASSWORD") ?: "lottery2026"
+                keyAlias System.getenv("KEY_ALIAS") ?: "ailottery"
+                keyPassword System.getenv("KEY_PASSWORD") ?: "lottery2026"
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (signingConfigs.release.storeFile != null) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            if (signingConfigs.release.storeFile != null) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

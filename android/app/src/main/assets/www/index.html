@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f1a">
+<title>AI 智能选号</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">AI</div>
+      <div class="brand-text">
+        <h1>AI 智能选号</h1>
+        <p>多维数据分析 · 智能约束过滤</p>
+      </div>
+    </div>
+    <nav class="segmented" id="gameTabs">
+      <button class="tab active" data-game="ssq">双色球</button>
+      <button class="tab" data-game="dlt">大乐透</button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="page active" id="page-analysis">
+      <div class="page-head">
+        <h2>数据分析</h2>
+        <p>基于 <b id="dataCount">1200</b> 期模拟开奖</p>
+      </div>
+
+      <div class="notice card">
+        <span class="notice-badge">演示</span>
+        <p>内置模拟开奖数据用于演示算法。彩票开奖为独立随机事件，任何算法都无法提高中奖概率，仅供娱乐参考。</p>
+      </div>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>冷热与遗漏</h2>
+          <select id="windowSelect">
+            <option value="30">最近 30 期</option>
+            <option value="50" selected>最近 50 期</option>
+            <option value="100">最近 100 期</option>
+            <option value="0">全部数据</option>
+          </select>
+        </div>
+        <div class="sub-title" id="latestTitle">最新一期</div>
+        <div class="balls-row" id="latestDraw"></div>
+        <div class="hotcold">
+          <div class="hc-block">
+            <div class="hc-title hot-title">热号</div>
+            <div class="mini-balls" id="hotBox"></div>
+          </div>
+          <div class="hc-block">
+            <div class="hc-title cold-title">冷号</div>
+            <div class="mini-balls" id="coldBox"></div>
+          </div>
+        </div>
+        <div class="sub-title">遗漏排行 <span class="muted" id="omissionMeta"></span></div>
+        <div class="mini-balls" id="omissionBox"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>数据图表</h2>
+        </div>
+        <div class="sub-title">号码频率分布 <span class="muted" id="freqMeta"></span></div>
+        <canvas id="freqChart" height="150"></canvas>
+        <div class="sub-title">主区和值走势（近 50 期）</div>
+        <canvas id="sumChart" height="130"></canvas>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>历史开奖</h2>
+          <span class="muted">模拟数据 · 近 8 期</span>
+        </div>
+        <div id="historyList"></div>
+      </section>
+    </section>
+
+    <section class="page" id="page-pick">
+      <div class="page-head">
+        <h2>智能选号</h2>
+        <p>策略生成 · 定胆杀号 · 手选</p>
+      </div>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>生成设置</h2>
+          <span class="muted small" id="strategyDesc"></span>
+        </div>
+        <div class="strategy-row" id="strategyRow">
+          <button class="strategy active" data-strategy="smart">智能平衡</button>
+          <button class="strategy" data-strategy="hot">追热</button>
+          <button class="strategy" data-strategy="cold">追冷</button>
+          <button class="strategy" data-strategy="omission">遗漏回补</button>
+          <button class="strategy" data-strategy="random">纯随机</button>
+        </div>
+        <div class="options-row">
+          <label class="opt">
+            <span>注数</span>
+            <select id="pickCount">
+              <option value="1" selected>1 注</option>
+              <option value="5">5 注</option>
+              <option value="10">10 注</option>
+            </select>
+          </label>
+          <label class="opt check"><input type="checkbox" id="fSum" checked><span>和值区间</span></label>
+          <label class="opt check"><input type="checkbox" id="fOdd" checked><span>奇偶比例</span></label>
+          <label class="opt check"><input type="checkbox" id="fZone" checked><span>区间均衡</span></label>
+          <label class="opt check"><input type="checkbox" id="fRun" checked><span>限制连号</span></label>
+        </div>
+        <button id="genBtn" class="primary big">立即生成</button>
+      </section>
+
+      <section class="card" id="resultCard" hidden>
+        <div class="card-head">
+          <h2>生成结果</h2>
+          <div class="head-actions">
+            <button class="ghost" id="copyAllBtn">复制全部</button>
+          </div>
+        </div>
+        <div id="pickList"></div>
+        <div class="muted small" id="pickMeta"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>定胆 / 杀号</h2>
+          <span class="muted small" id="mustBanStatus">定胆必含，杀号排除</span>
+        </div>
+        <div class="filter-tools">
+          <button class="mode-btn must active" data-mode="must">定胆模式</button>
+          <button class="mode-btn ban" data-mode="ban">杀号模式</button>
+        </div>
+        <div id="filterBoard"></div>
+        <div class="manual-actions">
+          <button class="ghost" id="filterClear">全部清空</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>手选号码</h2>
+          <span class="muted small" id="manualStatus">点击号码选球</span>
+        </div>
+        <div id="manualBoard"></div>
+        <div class="manual-actions">
+          <button class="ghost" id="manualClear">清空</button>
+          <button class="ghost" id="manualFill">随机补全</button>
+          <button class="primary" id="manualFav" disabled>收藏此注</button>
+        </div>
+      </section>
+    </section>
+
+    <section class="page" id="page-draw">
+      <div class="page-head">
+        <h2>模拟开奖</h2>
+        <p>摇号对比 · 战绩统计</p>
+      </div>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>开始摇号</h2>
+          <button class="ghost" id="statsClearBtn">清空战绩</button>
+        </div>
+        <div class="draw-controls">
+          <select id="compareSelect">
+            <option value="latest">对比最近一次生成结果</option>
+            <option value="manual">对比手选号码</option>
+            <option value="random">对比一注新机选</option>
+          </select>
+          <button id="drawBtn" class="primary">摇号</button>
+        </div>
+        <div class="balls-row draw-stage" id="drawBalls"></div>
+        <div id="drawCompare"></div>
+        <div id="drawResult" class="draw-result"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>战绩统计</h2>
+          <span class="muted small">按彩种独立保存</span>
+        </div>
+        <div class="draw-stats" id="drawStats"></div>
+      </section>
+    </section>
+
+    <section class="page" id="page-fav">
+      <div class="page-head">
+        <h2>我的收藏</h2>
+        <p>本机保存 · 一键检票</p>
+      </div>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>收藏号码</h2>
+          <div class="head-actions">
+            <span class="muted small" id="favCount">共 0 注</span>
+            <button class="ghost" id="favCheckBtn">批量检票</button>
+          </div>
+        </div>
+        <div id="favList" class="fav-list"></div>
+        <div id="favCheck"></div>
+      </section>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>彩票开奖为独立随机事件，历史数据与算法均无法预测结果。</p>
+    <p>仅供技术演示与娱乐，请理性购彩，未满 18 周岁禁止购彩。</p>
+  </footer>
+</div>
+
+<nav class="bottom-nav" id="bottomNav">
+  <button class="nav-item active" data-view="analysis" aria-label="数据分析">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+    <span>分析</span>
+  </button>
+  <button class="nav-item" data-view="pick" aria-label="智能选号">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="2.6"/><circle cx="16" cy="8" r="2.6"/><circle cx="8" cy="16" r="2.6"/><circle cx="16" cy="16" r="2.6"/></svg>
+    <span>选号</span>
+  </button>
+  <button class="nav-item" data-view="draw" aria-label="模拟开奖">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>
+    <span>开奖</span>
+  </button>
+  <button class="nav-item" data-view="fav" aria-label="我的收藏">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9L12 3.5z"/></svg>
+    <span>收藏</span>
+  </button>
+</nav>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="js/bundle.js"></script>
+</body>
+</html>

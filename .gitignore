@@ -174,3 +174,9 @@
 *.lz
 *.lzma
 *.iso
+
+# Project build artifacts and local config
+lottery-ai/downloads/*.apk
+lottery-ai/downloads/*.zip
+android/local.properties
+android/app/keystore.jks
