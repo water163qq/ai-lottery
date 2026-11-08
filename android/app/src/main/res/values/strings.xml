@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AI 智能选号</string>
-    <string name="app_version">1.0.0</string>
+    <string name="app_version">1.1.0</string>
     <string name="app_slogan">多维数据分析 · 智能约束过滤</string>
     <string name="app_disclaimer">仅供技术演示与娱乐，请理性购彩</string>
 </resources>
