@@ -682,7 +682,7 @@ canvas { width: 100%; display: block; margin-top: 4px; }
 
 .news-date {
   flex-shrink: 0;
-  width: 62px;
+  width: 42px;
   font-size: 11px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -718,3 +718,5 @@ canvas { width: 100%; display: block; margin-top: 4px; }
 .news-meta .meta-item b { color: var(--text); font-weight: 600; }
 .news-draw-content { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
 .news-source { margin-top: 8px; }
+
+.segmented.is-hidden { display: none; }

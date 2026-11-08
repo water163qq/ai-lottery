@@ -378,8 +378,8 @@ function renderNews() {
     $('#newsCount').textContent = '';
   } else {
     $('#newsList').innerHTML = news.map(n =>
-      `<a class="news-item" href="${n.url}" target="_blank" rel="noopener noreferrer">
-        <span class="news-date">${n.date || ''}</span>
+      `<a class="news-item" href="${n.url}" data-news-url="${n.url}">
+        <span class="news-date">${formatNewsDate(n.date)}</span>
         <span class="news-title">${escapeHtml(n.title)}</span>
         <span class="news-tag">${escapeHtml(n.source || '资讯')}</span>
       </a>`).join('');
@@ -394,6 +394,29 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[c]));
+}
+
+function formatNewsDate(date) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || '').trim());
+  return m ? `${m[2]}-${m[3]}` : (date || '');
+}
+
+function openExternal(url) {
+  if (!url) return;
+  const androidBridge = window.AndroidBridge;
+  if (androidBridge && typeof androidBridge.openUrl === 'function') {
+    androidBridge.openUrl(url);
+    return;
+  }
+  const win = window.open(url, '_blank', 'noopener,noreferrer');
+  if (win) return;
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 /* ---------- 手选号码 ---------- */
@@ -764,6 +787,8 @@ function switchView(view) {
   document.querySelectorAll('#bottomNav .nav-item').forEach(b => {
     b.classList.toggle('active', b.dataset.view === view);
   });
+  const tabs = $('#gameTabs');
+  if (tabs) tabs.classList.toggle('is-hidden', view === 'news');
   window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
   if (view === 'analysis') {
     requestAnimationFrame(() => {
@@ -784,6 +809,13 @@ function bindEvents() {
   $('#bottomNav').addEventListener('click', e => {
     const btn = e.target.closest('.nav-item');
     if (btn) switchView(btn.dataset.view);
+  });
+
+  $('#newsList').addEventListener('click', e => {
+    const item = e.target.closest('[data-news-url]');
+    if (!item) return;
+    e.preventDefault();
+    openExternal(item.dataset.newsUrl);
   });
 
   window.addEventListener('resize', () => {

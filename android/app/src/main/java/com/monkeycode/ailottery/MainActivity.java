@@ -1,13 +1,17 @@
 package com.monkeycode.ailottery;
 
 import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.app.Activity;
 
 public class MainActivity extends Activity {
 
@@ -35,9 +39,46 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
 
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return openExternally(request.getUrl());
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return openExternally(Uri.parse(url));
+            }
+        });
+        webView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
+
         setContentView(webView);
         webView.loadUrl("file:///android_asset/www/index.html");
+    }
+
+    private boolean openExternally(Uri uri) {
+        if (uri == null) return false;
+        String scheme = uri.getScheme();
+        if (scheme == null) return false;
+        if (scheme.equals("file") || scheme.equals("about") || scheme.equals("data")) {
+            return false;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private class AndroidBridge {
+        @JavascriptInterface
+        public void openUrl(final String url) {
+            if (url == null || url.isEmpty()) return;
+            runOnUiThread(() -> openExternally(Uri.parse(url)));
+        }
     }
 
     @Override
