@@ -66,12 +66,20 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "Using SDK at $SDK"
+          ls "$SDK" || true
 
       - name: Install platform and build tools
         run: |
-          sdkmanager --install "platforms;android-33" "build-tools;33.0.2" "platform-tools"
-          yes | sdkmanager --licenses > /dev/null || true
+          SDK="${SDK_ROOT}"
+          SDKMANAGER=$(find "$SDK/cmdline-tools" -name sdkmanager -type f | sort | tail -1)
+          "$SDKMANAGER" --sdk_root="$SDK" --install \
+            "platforms;android-33" "build-tools;33.0.2" "platform-tools" 2>&1 | tail -5
+          yes | "$SDKMANAGER" --sdk_root="$SDK" --licenses > /dev/null 2>&1 || true
 
       - name: Set up Python
         uses: actions/setup-python@v5
