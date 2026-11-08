@@ -1,0 +1,66 @@
+name: Update lottery data
+
+on:
+  schedule:
+    # Daily at 22:30 UTC (06:30 Beijing) after the evening draws settle
+    - cron: "30 22 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-lottery-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Fetch and commit latest draws
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch draw data and news
+        run: python3 scripts/fetch-lottery-data.py
+
+      - name: Sync Android web assets
+        run: python3 scripts/sync-web-assets.py
+
+      - name: Validate generated data
+        run: |
+          python3 - <<'PY'
+          import json, re, pathlib, sys
+          text = pathlib.Path("lottery-ai/js/livedata.js").read_text(encoding="utf-8")
+          start = text.index("const LIVE_DATA = ") + len("const LIVE_DATA = ")
+          end = text.index("};\n\nexport")
+          data = json.loads(text[start:end + 1])
+          for game in ("ssq", "dlt"):
+              draws = data["draws"].get(game) or []
+              if len(draws) < 20:
+                  sys.exit(f"{game}: only {len(draws)} draws")
+              issues = [d["issue"] for d in draws]
+              if issues != sorted(issues, reverse=True):
+                  sys.exit(f"{game}: draws not sorted by issue desc")
+              print(f"{game}: {len(draws)} draws, latest {issues[0]}")
+          print(f"news: {len(data.get('news') or [])} items, updatedAt {data['updatedAt']}")
+          PY
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lottery-ai/js/livedata.js android/app/src/main/assets/www/js/bundle.js
+          if git diff --cached --quiet; then
+            echo "No data changes"
+            exit 0
+          fi
+          git commit -m "chore(data): 同步最新开奖数据与资讯"
+          git push

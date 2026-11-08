@@ -1,3 +1,5 @@
+import { LIVE_DATA } from './livedata.js';
+
 const GAME = {
   ssq: {
     id: 'ssq',
@@ -69,9 +71,45 @@ function buildDraws(gameId, count, seed) {
   return draws;
 }
 
-const HISTORY = {
-  ssq: buildDraws('ssq', 1200, 20260101),
-  dlt: buildDraws('dlt', 1200, 20260202)
+const FALLBACK = {
+  ssq: buildDraws('ssq', 200, 20260101),
+  dlt: buildDraws('dlt', 200, 20260202)
 };
 
-export { GAME, HISTORY, mulberry32 };
+function normalizeDraws(list, gameId) {
+  const game = GAME[gameId];
+  if (!Array.isArray(list) || list.length === 0) return null;
+  const out = [];
+  for (const d of list) {
+    if (!d || !d.areas) continue;
+    const areas = {};
+    let ok = true;
+    for (const area of game.areas) {
+      const vals = d.areas[area.key];
+      if (!Array.isArray(vals) || vals.length !== area.pick) { ok = false; break; }
+      const nums = vals.map(Number).filter(n => Number.isInteger(n) && n >= area.min && n <= area.max);
+      if (nums.length !== area.pick || new Set(nums).size !== area.pick) { ok = false; break; }
+      areas[area.key] = nums.slice().sort((a, b) => a - b);
+    }
+    if (!ok) continue;
+    out.push({ issue: String(d.issue || ''), date: d.date || '', areas });
+  }
+  return out.length >= 20 ? out : null;
+}
+
+const HISTORY = {};
+const DATA_META = {};
+let live = LIVE_DATA && typeof LIVE_DATA === 'object' ? LIVE_DATA : null;
+
+Object.keys(GAME).forEach(id => {
+  const fromLive = live && live.draws ? normalizeDraws(live.draws[id], id) : null;
+  if (fromLive) {
+    HISTORY[id] = fromLive;
+    DATA_META[id] = { live: true, updatedAt: live.updatedAt || '' };
+  } else {
+    HISTORY[id] = FALLBACK[id];
+    DATA_META[id] = { live: false, updatedAt: '' };
+  }
+});
+
+export { GAME, HISTORY, DATA_META, mulberry32 };

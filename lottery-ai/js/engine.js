@@ -21,7 +21,7 @@ function analyzeArea(draws, area, windowSize) {
     .sort((a, b) => omission[b] - omission[a]).slice(0, 8);
   const coldSet = new Set(cold);
 
-  const sumSeries = recent.slice(0, 50).map(d => d.areas[area.key].reduce((a, b) => a + b, 0));
+  const sumSeries = recent.map(d => d.areas[area.key].reduce((a, b) => a + b, 0));
   const maxOmissionNums = [...nums].sort((a, b) => omission[b] - omission[a]).slice(0, 6);
 
   return { area, freq, omission, meanFreq, gap, hot, cold, coldSet, sumSeries, maxOmissionNums, window: recent.length };
@@ -174,7 +174,6 @@ function generatePick(gameId, strategy, opts, seed) {
 }
 
 function prizeInfo(gameId, mainHit, specialHit) {
-  const g = GAME[gameId];
   if (gameId === 'ssq') {
     if (mainHit === 6 && specialHit === 1) return '一等奖';
     if (mainHit === 6) return '二等奖';
@@ -185,11 +184,15 @@ function prizeInfo(gameId, mainHit, specialHit) {
     return '未中奖';
   }
   if (mainHit === 5 && specialHit === 2) return '一等奖';
-  if (mainHit === 5) return '二等奖';
-  if (mainHit === 4 && specialHit === 2) return '三等奖';
-  if ((mainHit === 4 && specialHit === 1) || (mainHit === 3 && specialHit === 2)) return '四等奖';
-  if (mainHit === 4 || (mainHit === 3 && specialHit === 1) || (mainHit === 2 && specialHit === 2)) return '五等奖';
-  if (mainHit === 3 || mainHit === 2 || (mainHit === 1 && specialHit === 2) || specialHit === 2) return '六等奖';
+  if (mainHit === 5 && specialHit === 1) return '二等奖';
+  if (mainHit === 5) return '三等奖';
+  if (mainHit === 4 && specialHit === 2) return '四等奖';
+  if (mainHit === 4 && specialHit === 1) return '五等奖';
+  if (mainHit === 3 && specialHit === 2) return '六等奖';
+  if (mainHit === 4) return '七等奖';
+  if ((mainHit === 3 && specialHit === 1) || (mainHit === 2 && specialHit === 2)) return '八等奖';
+  if ((mainHit === 3 && specialHit === 0) || (mainHit === 2 && specialHit === 1)
+    || (mainHit === 1 && specialHit === 2) || (mainHit === 0 && specialHit === 2)) return '九等奖';
   return '未中奖';
 }
 

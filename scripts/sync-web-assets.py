@@ -2,8 +2,8 @@
 """Sync the web front-end into the Android WebView assets.
 
 The web app uses ES modules, which do not load over file:// in old WebViews.
-This script concatenates js/data.js, js/engine.js and js/app.js into a single
-classic script and rewrites the index.html script tag accordingly.
+This script concatenates the js sources into a single classic script in
+dependency order and rewrites the index.html script tag accordingly.
 """
 
 import pathlib
@@ -15,13 +15,15 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "lottery-ai"
 DST = ROOT / "android" / "app" / "src" / "main" / "assets" / "www"
 
+MODULES = ("livedata.js", "data.js", "engine.js", "app.js")
+
 IMPORT_RE = re.compile(r"^import \{[^}]*\} from '[^']*';\s*$", re.M)
 EXPORT_RE = re.compile(r"^export \{[^}]*\};\s*$", re.M)
 
 
 def build_bundle() -> str:
     parts = []
-    for name in ("data.js", "engine.js", "app.js"):
+    for name in MODULES:
         text = (SRC / "js" / name).read_text(encoding="utf-8")
         text = IMPORT_RE.sub("", text)
         text = EXPORT_RE.sub("", text)

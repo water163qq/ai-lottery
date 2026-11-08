@@ -27,12 +27,12 @@
     <section class="page active" id="page-analysis">
       <div class="page-head">
         <h2>数据分析</h2>
-        <p>基于 <b id="dataCount">1200</b> 期模拟开奖</p>
+        <p>基于 <b id="dataCount">0</b> 期开奖数据 · <span id="dataSource">正在加载</span></p>
       </div>
 
       <div class="notice card">
-        <span class="notice-badge">演示</span>
-        <p>内置模拟开奖数据用于演示算法。彩票开奖为独立随机事件，任何算法都无法提高中奖概率，仅供娱乐参考。</p>
+        <span class="notice-badge">数据</span>
+        <p id="dataNotice">开奖数据来自官方公开发布，仅作统计展示。彩票开奖为独立随机事件，任何算法都无法提高中奖概率，仅供娱乐参考。</p>
       </div>
 
       <section class="card">
@@ -67,14 +67,14 @@
         </div>
         <div class="sub-title">号码频率分布 <span class="muted" id="freqMeta"></span></div>
         <canvas id="freqChart" height="150"></canvas>
-        <div class="sub-title">主区和值走势（近 50 期）</div>
+        <div class="sub-title">主区和值走势 <span class="muted" id="sumMeta"></span></div>
         <canvas id="sumChart" height="130"></canvas>
       </section>
 
       <section class="card">
         <div class="card-head">
           <h2>历史开奖</h2>
-          <span class="muted">模拟数据 · 近 8 期</span>
+          <span class="muted">近 8 期</span>
         </div>
         <div id="historyList"></div>
       </section>
@@ -188,6 +188,29 @@
       </section>
     </section>
 
+    <section class="page" id="page-news">
+      <div class="page-head">
+        <h2>最新资讯</h2>
+        <p>开奖公告 · 彩票新闻 <span id="newsUpdated" class="muted"></span></p>
+      </div>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>最新开奖</h2>
+          <button class="ghost" id="newsRefreshBtn">刷新</button>
+        </div>
+        <div id="newsDraws"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>彩票新闻</h2>
+          <span class="muted small" id="newsCount"></span>
+        </div>
+        <div id="newsList" class="news-list"></div>
+      </section>
+    </section>
+
     <section class="page" id="page-fav">
       <div class="page-head">
         <h2>我的收藏</h2>
@@ -226,6 +249,10 @@
   <button class="nav-item" data-view="draw" aria-label="模拟开奖">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>
     <span>开奖</span>
+  </button>
+  <button class="nav-item" data-view="news" aria-label="最新资讯">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h7M7 13h10M7 17h6"/></svg>
+    <span>资讯</span>
   </button>
   <button class="nav-item" data-view="fav" aria-label="我的收藏">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9L12 3.5z"/></svg>

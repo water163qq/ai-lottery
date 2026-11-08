@@ -1,4 +1,5 @@
-import { GAME, HISTORY } from './data.js';
+import { GAME, HISTORY, DATA_META } from './data.js';
+import { LIVE_DATA } from './livedata.js';
 import { analyze, generatePick, prizeInfo } from './engine.js';
 
 const $ = sel => document.querySelector(sel);
@@ -65,12 +66,13 @@ function ballHtml(n, cls, sm = false, extra = '') {
   return `<span class="ball ${cls} ${sm ? 'sm' : ''} ${extra}">${pad(n)}</span>`;
 }
 
-function pickHtml(pick, sm = false) {
-  const g = game();
+function pickHtml(pick, sm = false, gameId = state.game) {
+  const g = GAME[gameId] || game();
   let html = '';
   g.areas.forEach((area, i) => {
     if (i > 0) html += `<span class="ball plus sm">+</span>`;
-    pick.areas[area.key].forEach(n => { html += ballHtml(n, area.cls, sm); });
+    const vals = (pick.areas && pick.areas[area.key]) || [];
+    vals.forEach(n => { html += ballHtml(n, area.cls, sm); });
   });
   return html;
 }
@@ -95,8 +97,9 @@ function renderAnalysis() {
   const analysis = analyze(state.game, state.windowSize);
   const main = analysis[g.main];
   const latest = HISTORY[state.game][0];
+  const meta = DATA_META[state.game];
 
-  $('#latestTitle').textContent = `最新一期（模拟） · ${latest.issue}`;
+  $('#latestTitle').textContent = `最新一期 · ${latest.issue}${latest.date ? ' · ' + latest.date : ''}`;
   $('#latestDraw').innerHTML = pickHtml(latest);
 
   $('#hotBox').innerHTML = main.hot.map(n =>
@@ -112,9 +115,27 @@ function renderAnalysis() {
   $('#omissionMeta').textContent = `${g.main === 'red' ? '红球' : '前区'}平均遗漏约 ${main.gap.toFixed(1)} 期 · ${g.special === 'blue' ? '蓝球' : '后区'}最深遗漏 ${Math.max(...special.omission.slice(1))} 期`;
 
   $('#freqMeta').textContent = `统计窗口 ${main.window} 期`;
+  $('#sumMeta').textContent = `${main.window} 期 · 区间 ${game().sumIdeal[0]}-${game().sumIdeal[1]}`;
+  $('#dataCount').textContent = HISTORY[state.game].length;
+  $('#dataSource').textContent = meta.live ? `官方数据 · 更新于 ${formatUpdated(meta.updatedAt)}` : '离线内置数据';
   analysisCache.main = main;
   drawFreqChart(main);
   drawSumChart(main);
+}
+
+function formatUpdated(iso) {
+  if (!iso) return '未知时间';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '未知时间';
+  const now = Date.now();
+  const diff = Math.max(0, now - d.getTime());
+  const hours = Math.floor(diff / 3600000);
+  if (hours < 1) {
+    const mins = Math.floor(diff / 60000);
+    return mins <= 1 ? '刚刚' : `${mins} 分钟前`;
+  }
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
 }
 
 function setupCanvas(canvas) {
@@ -181,15 +202,20 @@ function drawSumChart(a) {
   const { ctx, width, height } = setupCanvas(canvas);
   ctx.clearRect(0, 0, width, height);
   const data = [...a.sumSeries].reverse();
-  const padL = 30, padR = 6, padT = 10, padB = 16;
+  if (data.length === 0) return;
+  const padL = 30, padR = 8, padT = 12, padB = 18;
   const chartW = width - padL - padR;
   const chartH = height - padT - padB;
-  const minV = Math.min(...data) - 4;
-  const maxV = Math.max(...data) + 4;
-  const x = i => padL + (i / (data.length - 1)) * chartW;
-  const y = v => padT + chartH - ((v - minV) / (maxV - minV)) * chartH;
+  const rawMin = Math.min(...data);
+  const rawMax = Math.max(...data);
+  const minV = rawMin - 4;
+  const maxV = rawMax + 4;
+  const span = Math.max(maxV - minV, 1);
+  const x = i => data.length === 1 ? padL + chartW / 2 : padL + (i / (data.length - 1)) * chartW;
+  const y = v => padT + chartH - ((v - minV) / span) * chartH;
 
   ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(padL, padT);
   ctx.lineTo(padL, padT + chartH);
@@ -197,12 +223,35 @@ function drawSumChart(a) {
   ctx.stroke();
 
   const [lo, hi] = game().sumIdeal;
-  ctx.fillStyle = 'rgba(108,140,255,0.08)';
-  ctx.fillRect(padL, y(hi), chartW, y(lo) - y(hi));
+  const bandTop = y(Math.min(hi, maxV));
+  const bandBottom = y(Math.max(lo, minV));
+  if (bandBottom > bandTop) {
+    ctx.fillStyle = 'rgba(108,140,255,0.08)';
+    ctx.fillRect(padL, bandTop, chartW, bandBottom - bandTop);
+    ctx.strokeStyle = 'rgba(108,140,255,0.25)';
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(padL, bandTop);
+    ctx.lineTo(padL + chartW, bandTop);
+    ctx.moveTo(padL, bandBottom);
+    ctx.lineTo(padL + chartW, bandBottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  if (data.length > 1) {
+    ctx.fillStyle = 'rgba(108,140,255,0.10)';
+    ctx.beginPath();
+    ctx.moveTo(x(0), padT + chartH);
+    data.forEach((v, i) => ctx.lineTo(x(i), y(v)));
+    ctx.lineTo(x(data.length - 1), padT + chartH);
+    ctx.closePath();
+    ctx.fill();
+  }
 
   const grad = ctx.createLinearGradient(0, padT, 0, padT + chartH);
-  grad.addColorStop(0, 'rgba(176,108,255,0.9)');
-  grad.addColorStop(1, 'rgba(108,140,255,0.9)');
+  grad.addColorStop(0, 'rgba(176,108,255,0.95)');
+  grad.addColorStop(1, 'rgba(108,140,255,0.95)');
   ctx.strokeStyle = grad;
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -217,9 +266,18 @@ function drawSumChart(a) {
 
   ctx.fillStyle = '#8a93a8';
   ctx.font = '10px sans-serif';
-  ctx.fillText(maxV, 4, padT + 8);
-  ctx.fillText(minV, 4, padT + chartH);
-  ctx.fillText(`均值带 ${lo}-${hi}`, padL + 4, y(hi) - 3);
+  ctx.fillText(String(maxV), 3, padT + 4);
+  ctx.fillText(String(minV), 3, padT + chartH);
+
+  const step = Math.max(1, Math.ceil(data.length / 5));
+  ctx.fillStyle = '#8a93a8';
+  for (let i = 0; i < data.length; i += step) {
+    const ago = data.length - 1 - i;
+    ctx.fillText(ago === 0 ? '本期' : `-${ago}`, x(i) - (ago === 0 ? 6 : 4), height - 4);
+  }
+  if (data.length > 1 && (data.length - 1) % step !== 0) {
+    ctx.fillText('本期', x(data.length - 1) - 6, height - 4);
+  }
 }
 
 /* ---------- 生成结果 ---------- */
@@ -267,12 +325,75 @@ function renderFavs() {
 }
 
 function renderHistory() {
-  const g = game();
   $('#historyList').innerHTML = HISTORY[state.game].slice(0, 8).map(d =>
     `<div class="history-item">
       <span class="issue">${d.issue}</span>
       <div class="balls-row">${pickHtml(d, true)}</div>
     </div>`).join('');
+}
+
+/* ---------- 最新资讯 ---------- */
+
+function formatMoney(raw) {
+  const n = Number(String(raw).replace(/[,\s]/g, ''));
+  if (!Number.isFinite(n) || n <= 0) return '';
+  if (n >= 100000000) return (n / 100000000).toFixed(2).replace(/\.?0+$/, '') + ' 亿';
+  if (n >= 10000) return (n / 10000).toFixed(1).replace(/\.?0+$/, '') + ' 万';
+  return String(n);
+}
+
+function renderNews() {
+  const live = LIVE_DATA || {};
+  const news = Array.isArray(live.news) ? live.news : [];
+  const info = live.info || {};
+
+  const drawBlocks = Object.keys(GAME).map(id => {
+    const g = GAME[id];
+    const latest = HISTORY[id] && HISTORY[id][0];
+    if (!latest) return '';
+    const meta = DATA_META[id] || {};
+    const detail = info[id] || {};
+    const rows = [];
+    if (detail.sales) rows.push(`<span class="meta-item">销售额 <b>${formatMoney(detail.sales)}</b></span>`);
+    if (detail.pool) rows.push(`<span class="meta-item">奖池 <b>${formatMoney(detail.pool)}</b></span>`);
+    if (detail.firstCount) rows.push(`<span class="meta-item">一等奖 <b>${detail.firstCount} 注</b>${detail.firstPrize ? ' · ' + formatMoney(detail.firstPrize) + ' 元/注' : ''}</span>`);
+    const content = detail.content ? `<p class="news-draw-content">${escapeHtml(detail.content)}</p>` : '';
+    return `<div class="news-draw">
+      <div class="news-draw-head">
+        <span class="news-game">${g.name}</span>
+        <span class="news-issue">第 ${latest.issue} 期</span>
+        <span class="muted small">${latest.date || ''}</span>
+      </div>
+      <div class="balls-row">${pickHtml(latest, false, id)}</div>
+      <div class="news-meta">${rows.join('')}</div>
+      ${content}
+      <div class="muted small news-source">${meta.live ? '官方数据' : '内置数据'}${meta.updatedAt ? ' · 更新于 ' + formatUpdated(meta.updatedAt) : ''}</div>
+    </div>`;
+  }).join('');
+
+  $('#newsDraws').innerHTML = drawBlocks || '<div class="fav-empty">暂无开奖数据</div>';
+
+  if (news.length === 0) {
+    $('#newsList').innerHTML = '<div class="fav-empty">暂无新闻，请稍后刷新。</div>';
+    $('#newsCount').textContent = '';
+  } else {
+    $('#newsList').innerHTML = news.map(n =>
+      `<a class="news-item" href="${n.url}" target="_blank" rel="noopener noreferrer">
+        <span class="news-date">${n.date || ''}</span>
+        <span class="news-title">${escapeHtml(n.title)}</span>
+        <span class="news-tag">${escapeHtml(n.source || '资讯')}</span>
+      </a>`).join('');
+    $('#newsCount').textContent = `共 ${news.length} 条`;
+  }
+
+  const updated = live.updatedAt ? formatUpdated(live.updatedAt) : '';
+  $('#newsUpdated').textContent = updated ? `· 更新于 ${updated}` : '';
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
 }
 
 /* ---------- 手选号码 ---------- */
@@ -629,6 +750,7 @@ function renderAll() {
   renderPicks();
   renderFavs();
   renderHistory();
+  renderNews();
   renderManualBoard();
   renderFilterBoard();
   renderDrawStats();
@@ -760,6 +882,11 @@ function bindEvents() {
   $('#filterClear').addEventListener('click', () => {
     resetFilters();
     renderFilterBoard();
+  });
+
+  $('#newsRefreshBtn').addEventListener('click', () => {
+    renderNews();
+    toast('已刷新资讯');
   });
 
   $('#favCheckBtn').addEventListener('click', runFavCheck);
