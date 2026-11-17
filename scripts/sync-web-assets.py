@@ -15,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "lottery-ai"
 DST = ROOT / "android" / "app" / "src" / "main" / "assets" / "www"
 
-MODULES = ("livedata.js", "data.js", "engine.js", "app.js")
+MODULES = ("livedata.js", "data.js", "engine.js", "fetch.js", "app.js")
 
 IMPORT_RE = re.compile(r"^import \{[^}]*\} from '[^']*';\s*$", re.M)
 EXPORT_RE = re.compile(r"^export \{[^}]*\};\s*$", re.M)

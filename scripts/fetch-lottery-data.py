@@ -3,11 +3,8 @@
 
 Sources:
   - 双色球 (SSQ): China Welfare Lottery official Open API
-  - 大乐透 (DLT): 500.com history table
+  - 大乐透 (DLT): 体彩官方历史接口，失败时回退 500.com
   - 资讯 (news): 中彩网 news list
-
-Output is a JavaScript module consumed by the static web app. Keeping the
-payload as JS avoids fetch/CORS problems in the Android WebView (file://).
 """
 
 import argparse
@@ -24,6 +21,7 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like 
 
 SSQ_API = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice"
 SSQ_HISTORY = "https://datachart.500.com/ssq/history/newinc/history.php"
+DLT_API = "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry"
 DLT_HISTORY = "https://datachart.500.com/dlt/history/newinc/history.php"
 NEWS_LIST = "https://www.zhcw.com/xinwen/"
 
@@ -59,8 +57,8 @@ def normalize_ssq_issue(issue):
     return "20" + issue if len(issue) == 5 else issue
 
 
-def fetch_ssq_official():
-    query = f"?name=ssq&issueCount={DRAW_LIMIT}&pageNo=1&pageSize={DRAW_LIMIT}"
+def fetch_ssq_official(limit=DRAW_LIMIT):
+    query = f"?name=ssq&issueCount={limit}&pageNo=1&pageSize={limit}"
     payload = json.loads(http_get(SSQ_API + query, referer="https://www.cwl.gov.cn/"))
     rows = payload.get("result") or []
     draws = []
@@ -122,8 +120,8 @@ def parse_500_rows(text, front_class, back_class, front_count):
     return draws
 
 
-def fetch_ssq_500():
-    text = http_get(f"{SSQ_HISTORY}?limit={DRAW_LIMIT}", referer="https://datachart.500.com/")
+def fetch_ssq_500(limit=DRAW_LIMIT):
+    text = http_get(f"{SSQ_HISTORY}?limit={limit}", referer="https://datachart.500.com/")
     parsed = parse_500_rows(text, "t_cfont2", "t_cfont4", 6)
     draws = [{
         "issue": normalize_ssq_issue(d["issue"]),
@@ -153,24 +151,65 @@ def fetch_ssq_500():
     return draws, info
 
 
-def fetch_ssq():
+def fetch_ssq(limit=DRAW_LIMIT):
     errors = []
     try:
-        draws, info = fetch_ssq_official()
-        if len(draws) >= 20:
+        draws, info = fetch_ssq_official(limit)
+        if len(draws) >= min(20, limit):
             return draws, info
         errors.append(f"official returned {len(draws)} draws")
-    except Exception as exc:
-        errors.append(f"official: {exc}")
+    except Exception as extra:
+        errors.append(f"official: {extra}")
     print("ssq: falling back to 500.com", file=sys.stderr)
-    draws, info = fetch_ssq_500()
-    if len(draws) < 20:
+    draws, info = fetch_ssq_500(limit)
+    if len(draws) < min(20, limit):
         raise RuntimeError("500.com fallback failed: " + "; ".join(errors))
     return draws, info
 
 
-def fetch_dlt():
-    text = http_get(f"{DLT_HISTORY}?limit={DRAW_LIMIT}", referer="https://datachart.500.com/")
+def fetch_dlt_official(limit=DRAW_LIMIT):
+    draws = []
+    seen = set()
+    info = None
+    page_size = 100
+    pages = max(1, (limit + page_size - 1) // page_size)
+    for page in range(1, pages + 1):
+        query = f"?gameNo=85&provinceId=0&pageSize={page_size}&isVerify=1&pageNo={page}"
+        payload = json.loads(http_get(DLT_API + query, referer="https://www.lottery.gov.cn/"))
+        rows = ((payload.get("value") or {}).get("list")) or []
+        for row in rows:
+            nums = clean_number_list(row.get("lotteryDrawResult", ""))
+            issue = str(row.get("lotteryDrawNum", "")).strip()
+            if len(nums) < 7 or not issue or issue in seen:
+                continue
+            seen.add(issue)
+            draws.append({
+                "issue": issue,
+                "date": fmt_date(row.get("lotteryDrawTime")),
+                "areas": {
+                    "front": sorted(nums[:5]),
+                    "back": sorted(nums[5:7]),
+                },
+            })
+            if info is None:
+                first = next((g for g in (row.get("prizeLevelList") or []) if g.get("prizeLevel") == "一等奖"), {})
+                info = {
+                    "issue": issue,
+                    "date": fmt_date(row.get("lotteryDrawTime")),
+                    "sales": row.get("totalSaleAmount", ""),
+                    "pool": row.get("poolBalanceAfterdraw", ""),
+                    "firstCount": first.get("stakeCount", ""),
+                    "firstPrize": first.get("stakeAmount", ""),
+                    "content": "",
+                }
+        if len(rows) < page_size or len(draws) >= limit:
+            break
+    draws.sort(key=lambda d: d["issue"], reverse=True)
+    return draws[:limit], info
+
+
+def fetch_dlt_500(limit=DRAW_LIMIT):
+    text = http_get(f"{DLT_HISTORY}?limit={limit}", referer="https://datachart.500.com/")
     draws = parse_500_rows(text, "cfont2", "cfont4", 5)
     if len(draws) < 20:
         raise RuntimeError(f"500.com returned only {len(draws)} draws")
@@ -196,6 +235,22 @@ def fetch_dlt():
                 "content": "",
             }
             break
+    return draws, info
+
+
+def fetch_dlt(limit=DRAW_LIMIT):
+    errors = []
+    try:
+        draws, info = fetch_dlt_official(limit)
+        if len(draws) >= min(20, limit):
+            return draws, info
+        errors.append(f"official returned {len(draws)} draws")
+    except Exception as extra:
+        errors.append(f"official: {extra}")
+    print("dlt: falling back to 500.com", file=sys.stderr)
+    draws, info = fetch_dlt_500(limit)
+    if len(draws) < min(20, limit):
+        raise RuntimeError("500.com fallback failed: " + "; ".join(errors))
     return draws, info
 
 

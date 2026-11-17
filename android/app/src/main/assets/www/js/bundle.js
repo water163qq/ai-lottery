@@ -17138,18 +17138,66 @@ function normalizeDraws(list, gameId) {
 
 const HISTORY = {};
 const DATA_META = {};
-let live = LIVE_DATA && typeof LIVE_DATA === 'object' ? LIVE_DATA : null;
+let live = LIVE_DATA && typeof LIVE_DATA === 'object'
+  ? LIVE_DATA
+  : { updatedAt: '', draws: {}, info: {}, news: [] };
 
-Object.keys(GAME).forEach(id => {
-  const fromLive = live && live.draws ? normalizeDraws(live.draws[id], id) : null;
-  if (fromLive) {
-    HISTORY[id] = fromLive;
-    DATA_META[id] = { live: true, updatedAt: live.updatedAt || '' };
-  } else {
-    HISTORY[id] = FALLBACK[id];
-    DATA_META[id] = { live: false, updatedAt: '' };
-  }
-});
+function hydrateFrom(payload, markLive) {
+  const draws = payload && payload.draws ? payload.draws : {};
+  Object.keys(GAME).forEach(id => {
+    const fromLive = normalizeDraws(draws[id], id);
+    if (fromLive) {
+      HISTORY[id] = fromLive;
+      DATA_META[id] = { live: markLive, updatedAt: (payload && payload.updatedAt) || '' };
+    } else if (!HISTORY[id]) {
+      HISTORY[id] = FALLBACK[id];
+      DATA_META[id] = { live: false, updatedAt: '' };
+    }
+  });
+}
+
+hydrateFrom(live, false);
+
+function getLiveData() {
+  return live;
+}
+
+function mergeDraws(prev, incoming) {
+  const map = new Map();
+  (prev || []).forEach(d => { if (d && d.issue != null) map.set(String(d.issue), d); });
+  (incoming || []).forEach(d => { if (d && d.issue != null) map.set(String(d.issue), d); });
+  return Array.from(map.values()).sort((a, b) => (a.issue < b.issue ? 1 : a.issue > b.issue ? -1 : 0));
+}
+
+function applyLiveData(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  const stamp = payload.updatedAt || new Date().toISOString();
+  const nextDraws = Object.assign({}, live.draws || {});
+  const nextInfo = Object.assign({}, live.info || {});
+  let any = false;
+  Object.keys(GAME).forEach(id => {
+    const incoming = payload.draws ? payload.draws[id] : null;
+    if (!normalizeDraws(incoming, id)) return;
+    const merged = mergeDraws(nextDraws[id], incoming);
+    const normalized = normalizeDraws(merged, id);
+    if (!normalized) return;
+    nextDraws[id] = merged;
+    HISTORY[id] = normalized;
+    DATA_META[id] = { live: true, updatedAt: stamp };
+    if (payload.info && payload.info[id]) nextInfo[id] = payload.info[id];
+    any = true;
+  });
+  const nextNews = Array.isArray(payload.news) && payload.news.length
+    ? payload.news
+    : (live.news || []);
+  live = {
+    updatedAt: stamp,
+    draws: nextDraws,
+    info: nextInfo,
+    news: nextNews
+  };
+  return any;
+}
 
 
 
@@ -17350,6 +17398,220 @@ function prizeInfo(gameId, mainHit, specialHit) {
 }
 
 
+const DRAW_LIMIT = 100;
+const DLT_PAGES = 2;
+
+function cleanNums(text) {
+  const matched = String(text || '').match(/\d+/g);
+  return matched ? matched.map(n => Number(n)) : [];
+}
+
+function fmtDate(text) {
+  return String(text || '').split('(')[0].trim().slice(0, 10);
+}
+
+function isoNow() {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function emptyPayload() {
+  return { updatedAt: isoNow(), draws: { ssq: [], dlt: [] }, info: { ssq: null, dlt: null }, news: [] };
+}
+
+function androidGet(url) {
+  const bridge = window.AndroidBridge;
+  if (!bridge || typeof bridge.httpGet !== 'function') return null;
+  const text = bridge.httpGet(url);
+  if (text == null || text === '') throw new Error('empty');
+  return text;
+}
+
+async function fetchText(url, timeout = 18000) {
+  const fromAndroid = androidGet(url);
+  if (fromAndroid !== null) return fromAndroid;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    const res = await fetch(url, {
+      cache: 'no-store',
+      signal: ctrl.signal,
+      headers: { Accept: '*/*' }
+    });
+    if (!res.ok) throw new Error(String(res.status));
+    return res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchJson(url, timeout = 18000) {
+  const text = await fetchText(url, timeout);
+  return JSON.parse(text);
+}
+
+function parseSsqPayload(payload) {
+  const rows = payload && payload.result ? payload.result : [];
+  const draws = [];
+  for (const row of rows) {
+    const red = cleanNums(row.red);
+    const blue = cleanNums(row.blue);
+    if (red.length !== 6 || blue.length !== 1) continue;
+    draws.push({
+      issue: String(row.code || '').trim(),
+      date: fmtDate(row.date),
+      areas: { red: red.slice().sort((a, b) => a - b), blue }
+    });
+  }
+  draws.sort((a, b) => (a.issue < b.issue ? 1 : a.issue > b.issue ? -1 : 0));
+  let info = null;
+  if (rows[0]) {
+    const top = rows[0];
+    const grades = {};
+    (top.prizegrades || []).forEach(g => { grades[g.type] = g; });
+    const first = grades[1] || {};
+    info = {
+      issue: String(top.code || '').trim(),
+      date: fmtDate(top.date),
+      sales: top.sales || '',
+      pool: top.poolmoney || '',
+      content: top.content || '',
+      firstCount: first.typenum || '',
+      firstPrize: first.typemoney || ''
+    };
+  }
+  return { draws, info };
+}
+
+function parseDltPage(payload) {
+  const rows = payload && payload.value && payload.value.list ? payload.value.list : [];
+  const draws = [];
+  let info = null;
+  for (const row of rows) {
+    const nums = cleanNums(row.lotteryDrawResult);
+    if (nums.length < 7) continue;
+    draws.push({
+      issue: String(row.lotteryDrawNum || '').trim(),
+      date: fmtDate(row.lotteryDrawTime),
+      areas: {
+        front: nums.slice(0, 5).sort((a, b) => a - b),
+        back: nums.slice(5, 7).sort((a, b) => a - b)
+      }
+    });
+    if (!info) {
+      const first = (row.prizeLevelList || []).find(p => p.prizeLevel === '一等奖') || {};
+      info = {
+        issue: String(row.lotteryDrawNum || '').trim(),
+        date: fmtDate(row.lotteryDrawTime),
+        sales: row.totalSaleAmount || '',
+        pool: row.poolBalanceAfterdraw || '',
+        firstCount: first.stakeCount || '',
+        firstPrize: first.stakeAmount || '',
+        content: ''
+      };
+    }
+  }
+  return { draws, info };
+}
+
+function parseNewsHtml(page, limit = 16) {
+  const items = [];
+  const seen = new Set();
+  const re = /<a\s+href="(\/c\/(\d{4}-\d{2}-\d{2})\/\d+\.shtml)"[^>]*class="A"[^>]*>([\s\S]*?)<\/a>/g;
+  let m;
+  while ((m = re.exec(page)) && items.length < limit) {
+    const href = m[1];
+    if (seen.has(href)) continue;
+    seen.add(href);
+    const title = m[3].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim();
+    if (!title) continue;
+    items.push({
+      title,
+      url: 'https://www.zhcw.com' + href,
+      date: m[2],
+      source: '中彩网'
+    });
+  }
+  items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  return items.slice(0, limit);
+}
+
+async function fetchSsqDirect() {
+  const url = `https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=ssq&issueCount=${DRAW_LIMIT}&pageNo=1&pageSize=${DRAW_LIMIT}`;
+  return parseSsqPayload(await fetchJson(url));
+}
+
+async function fetchDltDirect() {
+  const draws = [];
+  const seen = new Set();
+  let info = null;
+  for (let page = 1; page <= DLT_PAGES; page++) {
+    const url = `https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=85&provinceId=0&pageSize=100&isVerify=1&pageNo=${page}`;
+    const parsed = parseDltPage(await fetchJson(url));
+    if (!info) info = parsed.info;
+    for (const d of parsed.draws) {
+      if (seen.has(d.issue)) continue;
+      seen.add(d.issue);
+      draws.push(d);
+    }
+    if (parsed.draws.length < 100) break;
+  }
+  draws.sort((a, b) => (a.issue < b.issue ? 1 : a.issue > b.issue ? -1 : 0));
+  return { draws, info };
+}
+
+async function fetchNewsDirect() {
+  const html = await fetchText('https://www.zhcw.com/xinwen/');
+  return parseNewsHtml(html);
+}
+
+function isHttpApp() {
+  return location.protocol === 'http:' || location.protocol === 'https:';
+}
+
+async function fetchViaProxy() {
+  const payload = await fetchJson('/api/lottery?t=' + Date.now());
+  if (!payload || typeof payload !== 'object') throw new Error('bad payload');
+  return payload;
+}
+
+async function fetchDirect() {
+  const data = emptyPayload();
+  const tasks = [
+    fetchSsqDirect().then(r => {
+      data.draws.ssq = r.draws;
+      data.info.ssq = r.info;
+    }).catch(() => {}),
+    fetchDltDirect().then(r => {
+      data.draws.dlt = r.draws;
+      data.info.dlt = r.info;
+    }).catch(() => {}),
+    fetchNewsDirect().then(items => {
+      data.news = items;
+    }).catch(() => {})
+  ];
+  await Promise.all(tasks);
+  if ((data.draws.ssq || []).length < 20 && (data.draws.dlt || []).length < 20) {
+    throw new Error('no draws');
+  }
+  return data;
+}
+
+async function loadLiveData() {
+  if (window.AndroidBridge && typeof window.AndroidBridge.httpGet === 'function') {
+    return fetchDirect();
+  }
+  if (isHttpApp()) {
+    try {
+      return await fetchViaProxy();
+    } catch {
+      return fetchDirect();
+    }
+  }
+  return fetchDirect();
+}
+
+
 
 
 
@@ -17365,7 +17627,8 @@ const state = {
   must: {},
   ban: {},
   filterMode: 'must',
-  stats: loadStats('stats_ssq')
+  stats: loadStats('stats_ssq'),
+  fetching: false
 };
 
 function resetManual() {
@@ -17468,7 +17731,7 @@ function renderAnalysis() {
   $('#freqMeta').textContent = `统计窗口 ${main.window} 期`;
   $('#sumMeta').textContent = `${main.window} 期 · 区间 ${game().sumIdeal[0]}-${game().sumIdeal[1]}`;
   $('#dataCount').textContent = HISTORY[state.game].length;
-  $('#dataSource').textContent = meta.live ? `官方数据 · 更新于 ${formatUpdated(meta.updatedAt)}` : '离线内置数据';
+  $('#dataSource').textContent = sourceLabel(meta);
   analysisCache.main = main;
   drawFreqChart(main);
   drawSumChart(main);
@@ -17693,8 +17956,48 @@ function formatMoney(raw) {
   return String(n);
 }
 
+function sourceLabel(meta) {
+  if (state.fetching) return '正在拉取最新开奖…';
+  if (meta && meta.live) return `实时数据 · 更新于 ${formatUpdated(meta.updatedAt)}`;
+  return '离线备份数据';
+}
+
+function setRefreshBusy(busy) {
+  ['#newsRefreshBtn', '#dataRefreshBtn'].forEach(sel => {
+    const btn = $(sel);
+    if (!btn) return;
+    btn.disabled = busy;
+    btn.textContent = busy ? '拉取中…' : '刷新';
+  });
+}
+
+async function refreshLiveData(silent = false) {
+  if (state.fetching) return false;
+  state.fetching = true;
+  setRefreshBusy(true);
+  $('#dataSource').textContent = sourceLabel(DATA_META[state.game]);
+  try {
+    const payload = await loadLiveData();
+    const ok = applyLiveData(payload);
+    state.fetching = false;
+    setRefreshBusy(false);
+    renderAll();
+    if (!silent) toast(ok ? '已更新为最新开奖数据' : '数据源暂不可用，已保留本地数据');
+    return ok;
+  } catch {
+    state.fetching = false;
+    setRefreshBusy(false);
+    renderAll();
+    if (!silent) toast('拉取失败，已使用本地备份数据');
+    return false;
+  } finally {
+    state.fetching = false;
+    setRefreshBusy(false);
+  }
+}
+
 function renderNews() {
-  const live = LIVE_DATA || {};
+  const live = getLiveData() || {};
   const news = Array.isArray(live.news) ? live.news : [];
   const info = live.info || {};
 
@@ -17718,7 +18021,7 @@ function renderNews() {
       <div class="balls-row">${pickHtml(latest, false, id)}</div>
       <div class="news-meta">${rows.join('')}</div>
       ${content}
-      <div class="muted small news-source">${meta.live ? '官方数据' : '内置数据'}${meta.updatedAt ? ' · 更新于 ' + formatUpdated(meta.updatedAt) : ''}</div>
+      <div class="muted small news-source">${meta.live ? '实时数据' : '备份数据'}${meta.updatedAt ? ' · 更新于 ' + formatUpdated(meta.updatedAt) : ''}</div>
     </div>`;
   }).join('');
 
@@ -18267,10 +18570,9 @@ function bindEvents() {
     renderFilterBoard();
   });
 
-  $('#newsRefreshBtn').addEventListener('click', () => {
-    renderNews();
-    toast('已刷新资讯');
-  });
+  $('#newsRefreshBtn').addEventListener('click', () => refreshLiveData());
+  const dataRefresh = $('#dataRefreshBtn');
+  if (dataRefresh) dataRefresh.addEventListener('click', () => refreshLiveData());
 
   $('#favCheckBtn').addEventListener('click', runFavCheck);
   $('#statsClearBtn').addEventListener('click', () => {
@@ -18311,5 +18613,6 @@ resetManual();
 bindEvents();
 renderAll();
 switchView(state.view);
+refreshLiveData(true);
 
 })();

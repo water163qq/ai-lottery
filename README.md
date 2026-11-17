@@ -23,12 +23,14 @@
 ├── index.html            页面结构（五个功能页 + 底部导航）
 ├── css/style.css         移动端主题样式
 ├── js/
-│   ├── livedata.js       自动生成的开奖数据与资讯（勿手工编辑）
+│   ├── livedata.js       离线备份开奖数据（抓取失败时回退）
 │   ├── data.js           彩种配置、数据规范化、离线回退数据
+│   ├── fetch.js          启动与刷新时从数据源拉取最新开奖
 │   ├── engine.js         统计分析、加权抽样、评分、奖级映射
 │   └── app.js            界面交互、Canvas 图表、本地存储
 ├── scripts/
-│   ├── fetch-lottery-data.py   抓取开奖数据与新闻，生成 livedata.js
+│   ├── serve.py                本地预览服务（静态资源 + /api/lottery 代理）
+│   ├── fetch-lottery-data.py   抓取开奖数据与新闻，生成备份数据
 │   └── sync-web-assets.py      生成 Android WebView 可用的经典脚本 bundle
 ├── downloads/            下载中心页面（产物不纳入版本控制）
 └── android/              Android WebView 壳工程（启动动画 / 图标 / 版本信息）
@@ -37,12 +39,12 @@
 ## 本地运行
 
 ```bash
-python3 -m http.server 8000
+python3 scripts/serve.py
 ```
 
-访问 `http://localhost:8000`。
+访问 `http://localhost:8000`。页面启动和点击「刷新」时会从数据源拉取最新开奖。
 
-更新开奖数据与资讯（会重写 `js/livedata.js`）：
+更新离线备份数据（会重写 `js/livedata.js`，仅作断网回退）：
 
 ```bash
 python3 scripts/fetch-lottery-data.py
@@ -52,10 +54,10 @@ python3 scripts/fetch-lottery-data.py
 
 | 彩种 | 来源 | 说明 |
 |---|---|---|
-| 双色球 | 中国福利彩票官方开奖接口 | 最近 500 期，含日期、销售额、奖池、一等奖注数 |
-| 大乐透 | 500.com 历史开奖表 | 最近 500 期，含日期、销售额、一等奖注数与奖金 |
+| 双色球 | 中国福利彩票官方开奖接口 | 启动/刷新时实时拉取，含日期、销售额、奖池、一等奖注数 |
+| 大乐透 | 体彩官方历史接口 | 启动/刷新时实时拉取，失败时回退 500.com |
 
-数据与新闻由 GitHub Actions 每日定时抓取并提交，抓取失败时保留上一份有效数据，应用端始终能渲染。
+浏览器通过本地 `/api/lottery` 代理拉取；Android WebView 直连官方接口。拉取失败时回退到内置备份数据。
 
 ## 自动构建与发布
 
@@ -67,8 +69,8 @@ python3 scripts/fetch-lottery-data.py
 发布新版本：
 
 ```bash
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
 签名密钥通过仓库 Secrets 注入（`KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`），密钥文件本身不入库。

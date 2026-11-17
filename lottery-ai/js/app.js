@@ -1,6 +1,6 @@
-import { GAME, HISTORY, DATA_META } from './data.js';
-import { LIVE_DATA } from './livedata.js';
+import { GAME, HISTORY, DATA_META, getLiveData, applyLiveData } from './data.js';
 import { analyze, generatePick, prizeInfo } from './engine.js';
+import { loadLiveData } from './fetch.js';
 
 const $ = sel => document.querySelector(sel);
 const state = {
@@ -14,7 +14,8 @@ const state = {
   must: {},
   ban: {},
   filterMode: 'must',
-  stats: loadStats('stats_ssq')
+  stats: loadStats('stats_ssq'),
+  fetching: false
 };
 
 function resetManual() {
@@ -117,7 +118,7 @@ function renderAnalysis() {
   $('#freqMeta').textContent = `统计窗口 ${main.window} 期`;
   $('#sumMeta').textContent = `${main.window} 期 · 区间 ${game().sumIdeal[0]}-${game().sumIdeal[1]}`;
   $('#dataCount').textContent = HISTORY[state.game].length;
-  $('#dataSource').textContent = meta.live ? `官方数据 · 更新于 ${formatUpdated(meta.updatedAt)}` : '离线内置数据';
+  $('#dataSource').textContent = sourceLabel(meta);
   analysisCache.main = main;
   drawFreqChart(main);
   drawSumChart(main);
@@ -342,8 +343,48 @@ function formatMoney(raw) {
   return String(n);
 }
 
+function sourceLabel(meta) {
+  if (state.fetching) return '正在拉取最新开奖…';
+  if (meta && meta.live) return `实时数据 · 更新于 ${formatUpdated(meta.updatedAt)}`;
+  return '离线备份数据';
+}
+
+function setRefreshBusy(busy) {
+  ['#newsRefreshBtn', '#dataRefreshBtn'].forEach(sel => {
+    const btn = $(sel);
+    if (!btn) return;
+    btn.disabled = busy;
+    btn.textContent = busy ? '拉取中…' : '刷新';
+  });
+}
+
+async function refreshLiveData(silent = false) {
+  if (state.fetching) return false;
+  state.fetching = true;
+  setRefreshBusy(true);
+  $('#dataSource').textContent = sourceLabel(DATA_META[state.game]);
+  try {
+    const payload = await loadLiveData();
+    const ok = applyLiveData(payload);
+    state.fetching = false;
+    setRefreshBusy(false);
+    renderAll();
+    if (!silent) toast(ok ? '已更新为最新开奖数据' : '数据源暂不可用，已保留本地数据');
+    return ok;
+  } catch {
+    state.fetching = false;
+    setRefreshBusy(false);
+    renderAll();
+    if (!silent) toast('拉取失败，已使用本地备份数据');
+    return false;
+  } finally {
+    state.fetching = false;
+    setRefreshBusy(false);
+  }
+}
+
 function renderNews() {
-  const live = LIVE_DATA || {};
+  const live = getLiveData() || {};
   const news = Array.isArray(live.news) ? live.news : [];
   const info = live.info || {};
 
@@ -367,7 +408,7 @@ function renderNews() {
       <div class="balls-row">${pickHtml(latest, false, id)}</div>
       <div class="news-meta">${rows.join('')}</div>
       ${content}
-      <div class="muted small news-source">${meta.live ? '官方数据' : '内置数据'}${meta.updatedAt ? ' · 更新于 ' + formatUpdated(meta.updatedAt) : ''}</div>
+      <div class="muted small news-source">${meta.live ? '实时数据' : '备份数据'}${meta.updatedAt ? ' · 更新于 ' + formatUpdated(meta.updatedAt) : ''}</div>
     </div>`;
   }).join('');
 
@@ -916,10 +957,9 @@ function bindEvents() {
     renderFilterBoard();
   });
 
-  $('#newsRefreshBtn').addEventListener('click', () => {
-    renderNews();
-    toast('已刷新资讯');
-  });
+  $('#newsRefreshBtn').addEventListener('click', () => refreshLiveData());
+  const dataRefresh = $('#dataRefreshBtn');
+  if (dataRefresh) dataRefresh.addEventListener('click', () => refreshLiveData());
 
   $('#favCheckBtn').addEventListener('click', runFavCheck);
   $('#statsClearBtn').addEventListener('click', () => {
@@ -960,3 +1000,4 @@ resetManual();
 bindEvents();
 renderAll();
 switchView(state.view);
+refreshLiveData(true);

@@ -13,6 +13,13 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.zip.GZIPInputStream;
+
 public class MainActivity extends Activity {
 
     private WebView webView;
@@ -78,6 +85,50 @@ public class MainActivity extends Activity {
         public void openUrl(final String url) {
             if (url == null || url.isEmpty()) return;
             runOnUiThread(() -> openExternally(Uri.parse(url)));
+        }
+
+        @JavascriptInterface
+        public String httpGet(String url) {
+            if (url == null || url.isEmpty()) return "";
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(20000);
+                conn.setInstanceFollowRedirects(true);
+                conn.setRequestProperty("User-Agent",
+                        "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36");
+                conn.setRequestProperty("Accept", "*/*");
+                conn.setRequestProperty("Accept-Encoding", "gzip");
+                String referer = refererFor(url);
+                if (referer != null) conn.setRequestProperty("Referer", referer);
+                int code = conn.getResponseCode();
+                InputStream raw = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+                if (raw == null) return "";
+                String encoding = conn.getContentEncoding();
+                if (encoding != null && encoding.contains("gzip")) {
+                    raw = new GZIPInputStream(raw);
+                }
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = raw.read(buf)) != -1) out.write(buf, 0, n);
+                raw.close();
+                if (code >= 400) return "";
+                return new String(out.toByteArray(), StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                return "";
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }
+
+        private String refererFor(String url) {
+            if (url.contains("cwl.gov.cn")) return "https://www.cwl.gov.cn/";
+            if (url.contains("sporttery.cn") || url.contains("lottery.gov.cn")) return "https://www.lottery.gov.cn/";
+            if (url.contains("zhcw.com")) return "https://www.zhcw.com/";
+            if (url.contains("500.com")) return "https://datachart.500.com/";
+            return null;
         }
     }
 

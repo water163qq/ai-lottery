@@ -1,6 +1,6 @@
 # Android 构建说明
 
-本项目为「AI 智能选号」的 Android 壳工程，使用 WebView 加载 `app/src/main/assets/www` 内的前端页面，并提供启动动画、桌面图标与版本信息。
+本项目为「AI 智能选号」的 Android 壳工程，使用 WebView 加载 `app/src/main/assets/www` 内的前端页面，启动后从官方开奖接口拉取最新数据，并提供启动动画、桌面图标与版本信息。
 
 ## 环境要求
 
@@ -39,7 +39,7 @@ keytool -genkeypair -v -keystore app/keystore.jks -alias ailottery \
 
 ## 前端资源更新
 
-`assets/www` 内的 `js/bundle.js` 由 `/js` 目录源码合并生成（ES Modules 转为经典脚本，以兼容 WebView 的 `file://` 加载）。前端源码变更后需重新生成，而非直接手改 `bundle.js`。
+`assets/www` 内的 `js/bundle.js` 由 `lottery-ai/js` 源码合并生成（ES Modules 转为经典脚本，以兼容 WebView 的 `file://` 加载）。前端源码变更后执行 `python3 scripts/sync-web-assets.py` 重新生成，不要直接手改 `bundle.js`。应用需要联网权限以拉取最新开奖。
 
 ## 应用信息
 
@@ -47,5 +47,5 @@ keytool -genkeypair -v -keystore app/keystore.jks -alias ailottery \
 |---|---|
 | 应用名 | AI 智能选号 |
 | 包名 | com.monkeycode.ailottery |
-| 版本 | 1.0.0 (versionCode 10000) |
+| 版本 | 1.2.0 (versionCode 10200) |
 | minSdk / targetSdk | 21 / 33 |
